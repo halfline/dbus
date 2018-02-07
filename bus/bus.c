@@ -940,6 +940,11 @@ bus_context_new (const DBusString *config_file,
    */
   if (context->user != NULL)
     {
+      /* Raise the file descriptor limits before dropping the privileges
+       * required to do so.
+       */
+      raise_file_descriptor_limit (context);
+
       if (!_dbus_change_to_daemon_user (context->user, error))
 	{
 	  _DBUS_ASSERT_ERROR_IS_SET (error);
