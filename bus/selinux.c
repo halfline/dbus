@@ -398,14 +398,14 @@ bus_selinux_full_init (void)
   bus_context = NULL;
   bus_sid = SECSID_WILD;
 
-  if (getcon (&bus_context) < 0)
+  if (getcon_raw (&bus_context) < 0)
     {
       _dbus_verbose ("Error getting context of bus: %s\n",
                      _dbus_strerror (errno));
       return FALSE;
     }
       
-  if (avc_context_to_sid (bus_context, &bus_sid) < 0)
+  if (avc_context_to_sid_raw (bus_context, &bus_sid) < 0)
     {
       _dbus_verbose ("Error getting SID from bus context: %s\n",
                      _dbus_strerror (errno));
@@ -699,7 +699,7 @@ bus_selinux_append_context (DBusMessage    *message,
 #ifdef HAVE_SELINUX
   char *context;
 
-  if (avc_sid_to_context (SELINUX_SID_FROM_BUS (sid), &context) < 0)
+  if (avc_sid_to_context_raw (SELINUX_SID_FROM_BUS (sid), &context) < 0)
     {
       if (errno == ENOMEM)
         BUS_SET_OOM (error);
@@ -752,7 +752,7 @@ bus_connection_read_selinux_context (DBusConnection     *connection,
       return FALSE;
     }
   
-  if (getpeercon (fd, con) < 0)
+  if (getpeercon_raw (fd, con) < 0)
     {
       _dbus_verbose ("Error getting context of socket peer: %s\n",
                      _dbus_strerror (errno));
@@ -887,7 +887,7 @@ bus_selinux_init_connection_id (DBusConnection *connection,
 
   _dbus_verbose ("Converting context to SID to store on connection\n");
 
-  if (avc_context_to_sid (con, &sid) < 0)
+  if (avc_context_to_sid_raw (con, &sid) < 0)
     {
       if (errno == ENOMEM)
         BUS_SET_OOM (error);
