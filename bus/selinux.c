@@ -61,6 +61,9 @@
 /* Store the value telling us if SELinux is enabled in the kernel. */
 static dbus_bool_t selinux_enabled = FALSE;
 
+/* Store the value telling us if SELinux with MLS is enabled in the kernel. */
+static dbus_bool_t selinux_mls_enabled = FALSE;
+
 /* Store an avc_entry_ref to speed AVC decisions. */
 static struct avc_entry_ref aeref;
 
@@ -273,6 +276,20 @@ bus_selinux_enabled (void)
 }
 
 /**
+ * Return whether or not SELinux with MLS support is enabled; must be
+ * called after bus_selinux_init.
+ */
+dbus_bool_t
+bus_selinux_mls_enabled (void)
+{
+#ifdef HAVE_SELINUX
+  return selinux_mls_enabled;
+#else
+  return FALSE;
+#endif /* HAVE_SELINUX */
+}
+
+/**
  * Do early initialization; determine whether SELinux is enabled.
  */
 dbus_bool_t
@@ -292,6 +309,16 @@ bus_selinux_pre_init (void)
     }
 
   selinux_enabled = r != 0;
+
+  r = is_selinux_mls_enabled ();
+  if (r < 0)
+    {
+      _dbus_warn ("Could not tell if SELinux MLS is enabled: %s\n",
+                  _dbus_strerror (errno));
+      return FALSE;
+    }
+
+  selinux_mls_enabled = r != 0;
   return TRUE;
 #else
   return TRUE;
@@ -304,14 +331,18 @@ bus_selinux_pre_init (void)
  */
 /* security dbus class constants */
 #define SECCLASS_DBUS       1
+#define SECCLASS_CONTEXT    2
 
 /* dbus's per access vector constants */
 #define DBUS__ACQUIRE_SVC   1
 #define DBUS__SEND_MSG      2
 
+#define CONTEXT__CONTAINS   1
+
 #ifdef HAVE_SELINUX
 static struct security_class_mapping dbus_map[] = {
   { "dbus", { "acquire_svc", "send_msg", NULL } },
+  { "context", { "contains", NULL } },
   { NULL }
 };
 #endif /* HAVE_SELINUX */
@@ -732,6 +763,102 @@ bus_connection_read_selinux_context (DBusConnection     *connection,
   return TRUE;
 }
 #endif /* HAVE_SELINUX */
+
+/**
+ * Check if SELinux security controls allow one connection to determine the
+ * name of the other, taking into account MLS considerations.
+ *
+ * @param source the requester of the name.
+ * @param destination the name being requested.
+ * @returns whether the name should be visible by the source of the request
+ */
+dbus_bool_t
+bus_selinux_allows_name (DBusConnection     *source,
+                         DBusConnection     *destination,
+                         DBusError          *error)
+{
+#ifdef HAVE_SELINUX
+  int err;
+  char *policy_type;
+  unsigned long spid, tpid;
+  BusSELinuxID *source_sid;
+  BusSELinuxID *dest_sid;
+  dbus_bool_t ret;
+  dbus_bool_t string_alloced;
+  DBusString auxdata;
+
+  if (!selinux_mls_enabled)
+    return TRUE;
+
+  err = selinux_getpolicytype (&policy_type);
+  if (err < 0)
+    {
+      dbus_set_error_const (error, DBUS_ERROR_IO_ERROR,
+                            "Failed to get SELinux policy type");
+      return FALSE;
+    }
+
+  /* Only check against MLS policy if running under that policy. */
+  if (strcmp (policy_type, "mls") != 0)
+    {
+      free (policy_type);
+      return TRUE;
+    }
+
+  free (policy_type);
+
+  _dbus_assert (source != NULL);
+  _dbus_assert (destination != NULL);
+
+  if (!source || !dbus_connection_get_unix_process_id (source, &spid))
+    spid = 0;
+  if (!destination || !dbus_connection_get_unix_process_id (destination, &tpid))
+    tpid = 0;
+
+  string_alloced = FALSE;
+  if (!_dbus_string_init (&auxdata))
+    goto oom;
+  string_alloced = TRUE;
+
+  if (spid)
+    {
+      if (!_dbus_string_append (&auxdata, " spid="))
+	goto oom;
+
+      if (!_dbus_string_append_uint (&auxdata, spid))
+	goto oom;
+    }
+
+  if (tpid)
+    {
+      if (!_dbus_string_append (&auxdata, " tpid="))
+	goto oom;
+
+      if (!_dbus_string_append_uint (&auxdata, tpid))
+	goto oom;
+    }
+
+  source_sid = bus_connection_get_selinux_id (source);
+  dest_sid = bus_connection_get_selinux_id (destination);
+
+  ret = bus_selinux_check (source_sid,
+                           dest_sid,
+                           SECCLASS_CONTEXT,
+                           CONTEXT__CONTAINS,
+                           &auxdata);
+
+  _dbus_string_free (&auxdata);
+  return ret;
+
+ oom:
+  if (string_alloced)
+    _dbus_string_free (&auxdata);
+  BUS_SET_OOM (error);
+  return FALSE;
+#else
+  return TRUE;
+#endif /* HAVE_SELINUX */
+}
 
 /**
  * Read the SELinux ID from the connection.

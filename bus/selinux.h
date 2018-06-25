@@ -32,6 +32,7 @@ dbus_bool_t bus_selinux_full_init(void);
 void        bus_selinux_shutdown (void);
 
 dbus_bool_t bus_selinux_enabled  (void);
+dbus_bool_t bus_selinux_mls_enabled (void);
 
 void bus_selinux_id_ref    (BusSELinuxID *sid);
 void bus_selinux_id_unref  (BusSELinuxID *sid);
@@ -53,6 +54,10 @@ dbus_bool_t bus_selinux_allows_acquire_service (DBusConnection *connection,
                                                 BusSELinuxID   *service_sid,
 						const char     *service_name,
 						DBusError      *error);
+
+dbus_bool_t bus_selinux_allows_name            (DBusConnection *source,
+                                                DBusConnection *destination,
+                                                DBusError      *error);
 
 dbus_bool_t bus_selinux_allows_send            (DBusConnection *sender,
                                                 DBusConnection *proposed_recipient,

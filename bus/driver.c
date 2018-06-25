@@ -555,6 +555,9 @@ bus_driver_handle_list_services (DBusConnection *connection,
   char **services;
   BusRegistry *registry;
   int i;
+#ifdef HAVE_SELINUX
+  dbus_bool_t mls_enabled;
+#endif
   DBusMessageIter iter;
   DBusMessageIter sub;
 
@@ -601,9 +604,58 @@ bus_driver_handle_list_services (DBusConnection *connection,
       }
   }
 
+#ifdef HAVE_SELINUX
+  mls_enabled = bus_selinux_mls_enabled ();
+#endif
   i = 0;
   while (i < len)
     {
+#ifdef HAVE_SELINUX
+      if (mls_enabled)
+        {
+          const char *requester;
+          BusService *service;
+          DBusString str;
+          DBusConnection *service_conn;
+          DBusConnection *requester_conn;
+
+          requester = dbus_message_get_destination (reply);
+          _dbus_string_init_const (&str, requester);
+          service = bus_registry_lookup (registry, &str);
+
+          if (service == NULL)
+            {
+              _dbus_warn_check_failed ("service lookup failed: %s", requester);
+              ++i;
+              continue;
+            }
+          requester_conn = bus_service_get_primary_owners_connection (service);
+          _dbus_string_init_const (&str, services[i]);
+          service = bus_registry_lookup (registry, &str);
+          if (service == NULL)
+            {
+              _dbus_warn_check_failed ("service lookup failed: %s", services[i]);
+              ++i;
+              continue;
+            }
+          service_conn = bus_service_get_primary_owners_connection (service);
+
+          if (!bus_selinux_allows_name (requester_conn, service_conn, error))
+            {
+              if (dbus_error_is_set (error) &&
+                  dbus_error_has_name (error, DBUS_ERROR_NO_MEMORY))
+                {
+                  dbus_free_string_array (services);
+                  dbus_message_unref (reply);
+                  return FALSE;
+                }
+
+              /* Skip any services which are disallowed by SELinux policy. */
+              ++i;
+              continue;
+            }
+        }
+#endif
       if (!dbus_message_iter_append_basic (&sub, DBUS_TYPE_STRING,
                                            &services[i]))
         {
