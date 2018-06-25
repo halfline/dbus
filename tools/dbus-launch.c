@@ -619,17 +619,23 @@ babysit (int   exit_with_session,
   verbose ("babysitting, exit_with_session = %d, child_pid = %ld, read_bus_pid_fd = %d\n",
            exit_with_session, (long) child_pid, read_bus_pid_fd);
   
-  /* We chdir ("/") since we are persistent and daemon-like, and fork
-   * again so dbus-launch can reap the parent.  However, we don't
-   * setsid() or close fd 0 because the idea is to remain attached
-   * to the tty and the X server in order to kill the message bus
-   * when the session ends.
+  /* We chdir () since we are persistent and daemon-like, either to $HOME
+   * to match the behaviour of a session bus started by systemd --user, or
+   * otherwise "/". We fork again so dbus-launch can reap the parent.
+   * However, we don't setsid() or close fd 0 because the idea is to
+   * remain attached to the tty and the X server in order to kill the
+   * message bus when the session ends.
    */
 
-  if (chdir ("/") < 0)
+  s = getenv ("HOME");
+
+  if (s == NULL || *s == '\0')
+    s = "/";
+
+  if (chdir (s) < 0)
     {
-      fprintf (stderr, "Could not change to root directory: %s\n",
-               strerror (errno));
+      fprintf (stderr, "Could not change to working directory \"%s\": %s\n",
+               s, strerror (errno));
       exit (1);
     }
 

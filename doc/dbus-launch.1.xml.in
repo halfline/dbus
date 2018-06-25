@@ -50,6 +50,10 @@ backticks or the $() construct can be used to read information from
 instance and print the address and PID of that instance to standard
 output.</para>
 
+<para>If the environment variable HOME is set, it is used as the current
+working directory. Otherwise, the root directory (<filename>/</filename>) is
+used.</para>
+
 <para>You may specify a program to be run; in this case, <command>dbus-launch</command>
 will launch a session bus instance, set the appropriate environment
 variables so the specified program can find the bus, and then execute the
